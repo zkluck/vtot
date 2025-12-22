@@ -1,0 +1,22 @@
+{
+  "name": "@vtot/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "concurrently -n tsc,electron \"tsc -w -p tsconfig.json\" \"wait-on ../../packages/shared/dist/index.js dist/main.js dist/preload.js http://localhost:3000 && cross-env VTOT_RENDERER_URL=http://localhost:3000 electron .\"",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@vtot/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^30.0.0",
+    "typescript": "^5.5.4",
+    "wait-on": "^7.2.0"
+  }
+}

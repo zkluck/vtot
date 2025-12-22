@@ -1,0 +1,59 @@
+.home {
+  min-height: 100vh;
+  background: #0b0f1a;
+  color: #e8eaf0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+    Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
+}
+
+.home__panel {
+  width: 100%;
+  max-width: 520px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.home__title {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.home__desc {
+  margin: 0 0 16px 0;
+  opacity: 0.9;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.home__button {
+  border: none;
+  background: #2f67ff;
+  color: #ffffff;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.home__button:hover {
+  background: #2459e8;
+}
+
+.home__result {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

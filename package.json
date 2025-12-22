@@ -1,0 +1,22 @@
+{
+  "name": "vtot",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n shared,renderer,desktop \"pnpm -F @vtot/shared dev\" \"pnpm -F @vtot/renderer dev\" \"pnpm -F @vtot/desktop dev\"",
+    "build": "pnpm -F @vtot/shared build && pnpm -F @vtot/renderer build && pnpm -F @vtot/desktop build",
+    "typecheck": "pnpm -F @vtot/shared build && pnpm -F @vtot/renderer typecheck && pnpm -F @vtot/desktop typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.5.4",
+    "wait-on": "^7.2.0"
+  }
+}

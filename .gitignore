@@ -1,0 +1,16 @@
+node_modules/
+.DS_Store
+
+# TypeScript
+*.tsbuildinfo
+
+# Builds
+**/dist/
+
+# Next.js
+**/.next/
+**/out/
+
+# Logs
+**/logs/
+*.log
