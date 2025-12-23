@@ -80,6 +80,25 @@ importers:
         specifier: ^7.2.0
         version: 7.2.0
 
+  apps/worker:
+    dependencies:
+      '@vtot/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.30
+        version: 20.19.27
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      wait-on:
+        specifier: ^7.2.0
+        version: 7.2.0
+
   packages/shared:
     dependencies:
       zod:
@@ -428,7 +447,7 @@ packages:
     engines: {node: '>=8'}
 
   global-agent@3.0.0:
-    resolution: {integrity: sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q==}
+    resolution: {integrity: sha1-rnzTG9NYO5PFoWQ3oa/ifMM6GrY=}
     engines: {node: '>=10.0'}
 
   globalthis@1.0.4:

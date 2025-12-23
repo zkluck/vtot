@@ -8,9 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n shared,renderer,desktop \"pnpm -F @vtot/shared dev\" \"pnpm -F @vtot/renderer dev\" \"pnpm -F @vtot/desktop dev\"",
-    "build": "pnpm -F @vtot/shared build && pnpm -F @vtot/renderer build && pnpm -F @vtot/desktop build",
-    "typecheck": "pnpm -F @vtot/shared build && pnpm -F @vtot/renderer typecheck && pnpm -F @vtot/desktop typecheck"
+    "dev": "concurrently -n shared,renderer,worker,desktop \"pnpm -F @vtot/shared dev\" \"pnpm -F @vtot/renderer dev\" \"pnpm -F @vtot/worker dev\" \"pnpm -F @vtot/desktop dev\"",
+    "build": "pnpm -F @vtot/shared build && pnpm -F @vtot/renderer build && pnpm -F @vtot/worker build && pnpm -F @vtot/desktop build",
+    "typecheck": "pnpm -F @vtot/shared build && pnpm -F @vtot/worker typecheck && pnpm -F @vtot/renderer typecheck && pnpm -F @vtot/desktop typecheck"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",

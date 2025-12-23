@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "concurrently -n tsc,electron \"tsc -w -p tsconfig.json\" \"wait-on ../../packages/shared/dist/index.js dist/main.js dist/preload.js http://localhost:3000 && cross-env VTOT_RENDERER_URL=http://localhost:3000 electron .\"",
+    "dev": "concurrently -n tsc,electron \"tsc -w -p tsconfig.json\" \"wait-on ../../packages/shared/dist/index.js ../worker/dist/main.js dist/main.js dist/preload.js http://localhost:3000 && cross-env VTOT_RENDERER_URL=http://localhost:3000 electron .\"",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

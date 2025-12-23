@@ -1,4 +1,12 @@
-import type { IpcInvokeResult, PingResponse } from '@vtot/shared';
+import type {
+  IpcInvokeResult,
+  JobCancelRequest,
+  JobCancelResponse,
+  JobCreateRequest,
+  JobCreateResponse,
+  JobEvent,
+  PingResponse,
+} from '@vtot/shared';
 
 /**
  * Window 类型扩展。
@@ -24,6 +32,30 @@ declare global {
        * ping：验证 Renderer <-> Main 的最小联通性。
        */
       ping: () => Promise<IpcInvokeResult<PingResponse>>;
+
+      /**
+       * job：任务相关 API。
+       */
+      job: {
+        /**
+         * create：创建任务并触发执行（MVP stub）。
+         */
+        create: (
+          request: JobCreateRequest
+        ) => Promise<IpcInvokeResult<JobCreateResponse>>;
+
+        /**
+         * cancel：取消任务。
+         */
+        cancel: (
+          request: JobCancelRequest
+        ) => Promise<IpcInvokeResult<JobCancelResponse>>;
+
+        /**
+         * onEvent：订阅任务事件。
+         */
+        onEvent: (handler: (event: JobEvent) => void) => () => void;
+      };
     };
   }
 }
