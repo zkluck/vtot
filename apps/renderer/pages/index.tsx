@@ -69,8 +69,8 @@ const createDefaultJobCreateRequest = (
     sourceFilePath,
     importStrategy: 'reference',
     options: {
-      language: 'auto',
-      modelSize: 'small',
+      language: 'zh',
+      modelSize: 'medium',
       diarization: {
         enabled: false,
       },

@@ -337,7 +337,14 @@ const runExportStep = async (
 
   const formats = jobFile.options.export.formats ?? ['srt'];
   const speakerStyle = jobFile.options.export.speakerStyle ?? 'none';
-  const exportsDir = path.join(jobRootPath, 'exports');
+  const sourceDir =
+    jobFile.source?.originalPath !== undefined
+      ? path.dirname(jobFile.source.originalPath)
+      : null;
+  const exportsDir = sourceDir ?? path.join(jobRootPath, 'exports');
+  /**
+   * 导出目录默认与原始文件一致，若无法解析则回退到 job 根目录下的 exports。
+   */
   await ensureDir(exportsDir);
 
   const speakerNameMap = new Map<string, string>();
@@ -1311,12 +1318,21 @@ const runTranscribeStep = async (
   const baseName = path.parse(wavPath).name;
   const whisperJsonPath = path.join(outputDir, `${baseName}.json`);
 
-  const args = [
+  const jobFile = await readJobFile(jobRootPath);
+
+  if (!jobFile) {
+    throw new Error('job.json 不可读，无法执行 transcribe');
+  }
+
+  const requestedLanguage = jobFile.options.language ?? 'zh';
+  const requestedModel = jobFile.options.modelSize ?? 'medium';
+
+  const args: string[] = [
     '-m',
     'whisperx',
     wavPath,
     '--model',
-    'small',
+    requestedModel,
     '--output_dir',
     outputDir,
     '--print_progress',
@@ -1335,6 +1351,13 @@ const runTranscribeStep = async (
     '--vad_method',
     'silero',
   ];
+
+  if (
+    requestedLanguage.trim().length > 0 &&
+    requestedLanguage.toLowerCase() !== 'auto'
+  ) {
+    args.push('--language', requestedLanguage);
+  }
 
   const result = await runProcess('python', args);
 
@@ -1410,8 +1433,8 @@ const runTranscribeStep = async (
   });
 
   const artifactPayload = buildArtifactPayload(targetJobId, 'transcribe', {
-    language: parsed.language ?? 'auto',
-    modelSize: 'small',
+    language: requestedLanguage,
+    modelSize: requestedModel,
     enableWordTimestamps: true,
     segments,
   });
