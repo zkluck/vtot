@@ -74,6 +74,430 @@ const getJobJsonPath = (jobRootPath: string): string => {
   return path.join(jobRootPath, 'job.json');
 };
 
+/**
+ * 说话人分离：若未启用则生成单 speaker，启用时可接 Engine（暂为 stub）。
+ */
+const runDiarizeStep = async (
+  targetJobId: string,
+  jobRootPath: string
+): Promise<void> => {
+  emitProgress(targetJobId, 'diarize', 60, 'diarize: 准备');
+
+  const jobFile = await readJobFile(jobRootPath);
+  if (!jobFile) {
+    throw new Error('job.json 不可读，无法执行 diarize');
+  }
+
+  const extractPath = path.join(jobRootPath, 'artifacts', 'extract_audio.json');
+  let extracted: ExtractAudioArtifact | null = null;
+
+  try {
+    const content = await fs.readFile(extractPath, 'utf-8');
+    extracted = JSON.parse(content) as ExtractAudioArtifact;
+  } catch (err) {
+    console.warn(
+      '[worker] failed to read extract_audio artifact for diarize',
+      err
+    );
+  }
+
+  const durationMs =
+    extracted?.audio?.durationMs !== undefined &&
+    extracted?.audio?.durationMs !== null
+      ? extracted.audio.durationMs
+      : null;
+
+  const diarizationOptions = jobFile.options.diarization;
+
+  if (!diarizationOptions.enabled) {
+    const singleSpeaker: DiarizeSpeaker = {
+      speakerId: 'SPEAKER_00',
+      displayName: 'Speaker 1',
+    };
+    const singleTurn: SpeakerTurn = {
+      speakerId: singleSpeaker.speakerId,
+      startMs: 0,
+      endMs: durationMs ?? 0,
+      confidence: null,
+    };
+
+    const artifactPayload = buildArtifactPayload(targetJobId, 'diarize', {
+      speakers: [singleSpeaker],
+      turns: [singleTurn],
+      note: 'diarization disabled, fallback to single speaker',
+    });
+
+    const artifactPath = path.join(jobRootPath, 'artifacts', 'diarize.json');
+    await writeJsonAtomic(artifactPath, artifactPayload);
+
+    emitProgress(targetJobId, 'diarize', 71, 'diarize: 完成（disabled）');
+
+    sendEvent({
+      type: 'job.log',
+      data: {
+        jobId: targetJobId,
+        ts: Date.now(),
+        level: 'info',
+        step: 'diarize',
+        message: 'diarize skipped (disabled)',
+        data: {
+          artifactPath,
+        },
+      },
+    });
+
+    return;
+  }
+
+  emitProgress(targetJobId, 'diarize', 65, 'diarize: stub pipeline');
+  await sleep(200);
+
+  const minSpeakers = diarizationOptions.minSpeakers ?? 1;
+  const maxSpeakers =
+    diarizationOptions.maxSpeakers ?? Math.max(minSpeakers, 2);
+  const speakerCount = Math.max(1, Math.min(2, maxSpeakers));
+
+  const speakers: DiarizeSpeaker[] = Array.from({ length: speakerCount }).map(
+    (_, index) => ({
+      speakerId: `SPEAKER_${index.toString().padStart(2, '0')}`,
+      displayName: `Speaker ${index + 1}`,
+    })
+  );
+
+  const totalDuration = durationMs ?? 0;
+  const turns: SpeakerTurn[] = [];
+
+  if (totalDuration > 0 && speakers.length > 0) {
+    const turnDuration = Math.floor(totalDuration / speakers.length);
+    let cursor = 0;
+
+    speakers.forEach((speaker, idx) => {
+      const isLast = idx === speakers.length - 1;
+      const endPoint = isLast ? totalDuration : cursor + turnDuration;
+
+      turns.push({
+        speakerId: speaker.speakerId,
+        startMs: cursor,
+        endMs: Math.max(endPoint, cursor),
+        confidence: null,
+      });
+
+      cursor = endPoint;
+    });
+  } else {
+    turns.push({
+      speakerId: speakers[0]?.speakerId ?? 'SPEAKER_00',
+      startMs: 0,
+      endMs: 0,
+      confidence: null,
+    });
+  }
+
+  const artifactPayload = buildArtifactPayload(targetJobId, 'diarize', {
+    speakers,
+    turns,
+    note: 'diarize stub placeholder',
+  });
+
+  const artifactPath = path.join(jobRootPath, 'artifacts', 'diarize.json');
+  await writeJsonAtomic(artifactPath, artifactPayload);
+
+  emitProgress(targetJobId, 'diarize', 71, 'diarize: 完成（stub）');
+
+  sendEvent({
+    type: 'job.log',
+    data: {
+      jobId: targetJobId,
+      ts: Date.now(),
+      level: 'info',
+      step: 'diarize',
+      message: 'diarize done (stub)',
+      data: {
+        artifactPath,
+        speakersCount: speakers.length,
+      },
+    },
+  });
+};
+
+const formatTimestamp = (valueMs: number, separator: ',' | '.'): string => {
+  const clamped = Math.max(valueMs, 0);
+  const hours = Math.floor(clamped / 3_600_000)
+    .toString()
+    .padStart(2, '0');
+  const minutes = Math.floor((clamped % 3_600_000) / 60_000)
+    .toString()
+    .padStart(2, '0');
+  const seconds = Math.floor((clamped % 60_000) / 1000)
+    .toString()
+    .padStart(2, '0');
+  const millis = Math.floor(clamped % 1000)
+    .toString()
+    .padStart(3, '0');
+  return `${hours}:${minutes}:${seconds}${separator}${millis}`;
+};
+
+const normalizeCues = (rawCues: MergeCue[]): MergeCue[] => {
+  return rawCues.map((cue, idx) => {
+    return {
+      cueId: cue.cueId ?? `cue-${idx.toString().padStart(4, '0')}`,
+      index: typeof cue.index === 'number' ? cue.index : idx,
+      startMs: cue.startMs,
+      endMs: cue.endMs,
+      speakerId:
+        cue.speakerId !== undefined && cue.speakerId !== null
+          ? cue.speakerId
+          : null,
+      text: cue.text ?? '',
+    };
+  });
+};
+
+const loadSubtitleCues = async (
+  jobRootPath: string
+): Promise<{ cues: MergeCue[]; speakers: DiarizeSpeaker[] }> => {
+  const editedPath = path.join(
+    jobRootPath,
+    'artifacts',
+    'subtitle.edited.json'
+  );
+  const mergePath = path.join(jobRootPath, 'artifacts', 'merge.json');
+
+  const [edited, merged] = await Promise.all([
+    readArtifactJson<EditedSubtitleArtifact>(editedPath),
+    readArtifactJson<MergeArtifact>(mergePath),
+  ]);
+
+  if (edited?.cues?.length) {
+    const cues = normalizeCues(
+      edited.cues.map((cue, idx) => ({
+        cueId: cue.cueId ?? `cue-${idx.toString().padStart(4, '0')}`,
+        index: typeof cue.index === 'number' ? cue.index : idx,
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        speakerId:
+          cue.speakerId !== undefined && cue.speakerId !== null
+            ? cue.speakerId
+            : null,
+        text: cue.text ?? '',
+      }))
+    );
+
+    return {
+      cues,
+      speakers: merged?.speakers ?? [],
+    };
+  }
+
+  return {
+    cues: normalizeCues(merged?.cues ?? []),
+    speakers: merged?.speakers ?? [],
+  };
+};
+
+const buildSrtContent = (cues: MergeCue[]): string => {
+  const blocks = cues.map((cue, idx) => {
+    const start = formatTimestamp(cue.startMs, ',');
+    const end = formatTimestamp(cue.endMs, ',');
+    return `${idx + 1}\n${start} --> ${end}\n${cue.text}\n`;
+  });
+  return blocks.join('\n');
+};
+
+const buildVttContent = (cues: MergeCue[]): string => {
+  const lines = cues.map((cue) => {
+    const start = formatTimestamp(cue.startMs, '.');
+    const end = formatTimestamp(cue.endMs, '.');
+    return `${start} --> ${end}\n${cue.text}\n`;
+  });
+  return `WEBVTT\n\n${lines.join('\n')}`.trimEnd();
+};
+
+const buildTxtContent = (cues: MergeCue[]): string => {
+  return cues.map((cue) => cue.text).join('\n');
+};
+
+const runExportStep = async (
+  targetJobId: string,
+  jobRootPath: string
+): Promise<void> => {
+  emitProgress(targetJobId, 'export', 88, 'export: 准备数据');
+
+  const jobFile = await readJobFile(jobRootPath);
+
+  if (!jobFile) {
+    throw new Error('job.json 不可读，无法执行 export');
+  }
+
+  const { cues, speakers } = await loadSubtitleCues(jobRootPath);
+
+  if (cues.length === 0) {
+    throw new Error('没有可导出的字幕内容');
+  }
+
+  const formats = jobFile.options.export.formats ?? ['srt'];
+  const speakerStyle = jobFile.options.export.speakerStyle ?? 'none';
+  const exportsDir = path.join(jobRootPath, 'exports');
+  await ensureDir(exportsDir);
+
+  const speakerNameMap = new Map<string, string>();
+
+  speakers.forEach((speaker, index) => {
+    if (speaker.speakerId) {
+      speakerNameMap.set(
+        speaker.speakerId,
+        speaker.displayName || `Speaker ${index + 1}`
+      );
+    }
+  });
+
+  const cuesWithSpeakerStyle = cues.map((cue) => {
+    if (speakerStyle !== 'prefix') {
+      return cue;
+    }
+
+    const speakerName =
+      cue.speakerId && speakerNameMap.get(cue.speakerId)
+        ? speakerNameMap.get(cue.speakerId)
+        : 'Speaker';
+
+    return {
+      ...cue,
+      text: `${speakerName}: ${cue.text}`.trim(),
+    };
+  });
+
+  const exportEntries: Array<{ format: string; filePath: string }> = [];
+
+  emitProgress(targetJobId, 'export', 93, 'export: 写入文件');
+
+  for (const format of formats) {
+    let fileName = `subtitles.${format}`;
+    let content: string | null = null;
+
+    if (format === 'srt') {
+      content = buildSrtContent(cuesWithSpeakerStyle);
+    } else if (format === 'vtt') {
+      content = buildVttContent(cuesWithSpeakerStyle);
+    } else if (format === 'txt') {
+      content = buildTxtContent(cuesWithSpeakerStyle);
+    } else {
+      console.warn(`[worker] 未知导出格式 ${format}，已跳过`);
+      continue;
+    }
+
+    const filePath = path.join(exportsDir, fileName);
+    await fs.writeFile(filePath, content, 'utf-8');
+    exportEntries.push({ format, filePath });
+  }
+
+  if (exportEntries.length === 0) {
+    throw new Error('export: 没有成功生成的文件');
+  }
+
+  const artifactPayload = buildArtifactPayload(targetJobId, 'export', {
+    speakerStyle,
+    exports: exportEntries,
+  });
+
+  const artifactPath = path.join(jobRootPath, 'artifacts', 'export.json');
+  await writeJsonAtomic(artifactPath, artifactPayload);
+
+  emitProgress(targetJobId, 'export', 97, 'export: 完成');
+
+  sendEvent({
+    type: 'job.log',
+    data: {
+      jobId: targetJobId,
+      ts: Date.now(),
+      level: 'info',
+      step: 'export',
+      message: 'export done',
+      data: {
+        artifactPath,
+        exports: exportEntries,
+      },
+    },
+  });
+};
+
+/**
+ * 合并转写与说话人信息，生成 artifacts/merge.json。
+ *
+ * 说明：
+ * - diarize 若缺失则全部标记为 null speaker。
+ * - cueId 使用稳定前缀 + index，方便 UI/导出引用。
+ */
+const runMergeStep = async (
+  targetJobId: string,
+  jobRootPath: string
+): Promise<void> => {
+  emitProgress(targetJobId, 'merge', 74, 'merge: 准备数据');
+
+  const transcribePath = path.join(jobRootPath, 'artifacts', 'transcribe.json');
+  const diarizePath = path.join(jobRootPath, 'artifacts', 'diarize.json');
+
+  const transcribeArtifact =
+    (await readArtifactJson<TranscribeArtifact>(transcribePath)) ?? undefined;
+  const diarizeArtifact =
+    (await readArtifactJson<DiarizeArtifact>(diarizePath)) ?? undefined;
+
+  const segments = transcribeArtifact?.segments ?? [];
+  const speakers = diarizeArtifact?.speakers ?? [];
+  const turns = diarizeArtifact?.turns ?? [];
+
+  const cues: MergeCue[] = segments.map((segment, index) => {
+    const cueStart = segment.startMs;
+    const cueEnd = segment.endMs;
+
+    const matchedTurn = turns.find(
+      (turn) => turn.startMs <= cueStart && turn.endMs >= cueEnd
+    );
+
+    return {
+      cueId: `cue-${index.toString().padStart(4, '0')}`,
+      index,
+      startMs: cueStart,
+      endMs: cueEnd,
+      speakerId: matchedTurn?.speakerId ?? null,
+      text: segment.text,
+    };
+  });
+
+  const artifactPayload = buildArtifactPayload(targetJobId, 'merge', {
+    speakers:
+      speakers.length > 0
+        ? speakers
+        : [
+            {
+              speakerId: 'SPEAKER_00',
+              displayName: 'Speaker 1',
+            },
+          ],
+    cues,
+  });
+
+  const artifactPath = path.join(jobRootPath, 'artifacts', 'merge.json');
+  await writeJsonAtomic(artifactPath, artifactPayload);
+
+  emitProgress(targetJobId, 'merge', 86, 'merge: 完成');
+
+  sendEvent({
+    type: 'job.log',
+    data: {
+      jobId: targetJobId,
+      ts: Date.now(),
+      level: 'info',
+      step: 'merge',
+      message: 'merge done',
+      data: {
+        artifactPath,
+        cuesCount: cues.length,
+      },
+    },
+  });
+};
+
 const getCancelFlagPath = (jobRootPath: string): string => {
   return path.join(jobRootPath, 'cancel.flag');
 };
@@ -122,6 +546,22 @@ const readJobFile = async (jobRootPath: string): Promise<JobFile | null> => {
       jobRootPath,
       err instanceof Error ? err.message : err
     );
+    return null;
+  }
+};
+
+/**
+ * 读取指定 artifact JSON。
+ *
+ * 说明：
+ * - 当文件缺失或 JSON 无法解析时返回 null，调用方自行决定兜底策略。
+ */
+const readArtifactJson = async <T>(filePath: string): Promise<T | null> => {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(content) as T;
+  } catch (err) {
+    console.error('[worker] failed to read artifact json', filePath, err);
     return null;
   }
 };
@@ -229,6 +669,289 @@ const runProcess = async (
     child.on('close', (code) => {
       resolve({ code, stdout, stderr });
     });
+  });
+};
+
+/**
+ * 通过 ffprobe 读取 wav 时长，返回毫秒。
+ */
+const probeAudioDurationMs = async (wavPath: string): Promise<number> => {
+  const probeArgs = [
+    '-v',
+    'quiet',
+    '-print_format',
+    'json',
+    '-show_format',
+    wavPath,
+  ];
+  const result = await runProcess('ffprobe', probeArgs);
+
+  if (result.code !== 0) {
+    throw new Error(
+      `ffprobe for segment duration failed code=${result.code ?? -1} stderr=${
+        result.stderr
+      }`
+    );
+  }
+
+  type FormatMeta = { format?: { duration?: string } };
+  let parsed: FormatMeta = {};
+
+  try {
+    parsed = JSON.parse(result.stdout) as FormatMeta;
+  } catch (err) {
+    throw new Error(
+      `ffprobe duration parse error: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+
+  const durationMs = parseDurationMs(parsed.format?.duration);
+
+  if (durationMs === null) {
+    throw new Error('unable to parse wav duration for segment step');
+  }
+
+  return durationMs;
+};
+
+/**
+ * 调用 ffmpeg silencedetect 输出静音区间列表，单位毫秒。
+ */
+const detectSilenceRanges = async (
+  wavPath: string,
+  totalDurationMs: number
+): Promise<SilenceRange[]> => {
+  const args = [
+    '-hide_banner',
+    '-i',
+    wavPath,
+    '-af',
+    `silencedetect=noise=${SILENCE_THRESHOLD_DB}dB:d=${SILENCE_MIN_DURATION_SECONDS}`,
+    '-f',
+    'null',
+    '-',
+  ];
+
+  const result = await runProcess('ffmpeg', args);
+
+  if (result.code !== 0) {
+    throw new Error(
+      `ffmpeg silencedetect failed code=${result.code ?? -1} stderr=${
+        result.stderr
+      }`
+    );
+  }
+
+  const lines = result.stderr.split(/\r?\n/);
+  const startRegex = /silence_start:\s*([0-9.]+)/i;
+  const endRegex = /silence_end:\s*([0-9.]+)/i;
+  let pendingStartMs: number | null = null;
+  const ranges: SilenceRange[] = [];
+
+  lines.forEach((line) => {
+    const startMatch = line.match(startRegex);
+    if (startMatch) {
+      const seconds = Number.parseFloat(startMatch[1] ?? '');
+      if (Number.isFinite(seconds)) {
+        pendingStartMs = Math.max(Math.round(seconds * 1000), 0);
+      }
+      return;
+    }
+
+    const endMatch = line.match(endRegex);
+    if (endMatch && pendingStartMs !== null) {
+      const seconds = Number.parseFloat(endMatch[1] ?? '');
+      if (Number.isFinite(seconds)) {
+        const rawEnd = Math.max(Math.round(seconds * 1000), pendingStartMs);
+        ranges.push({
+          startMs: pendingStartMs,
+          endMs: Math.min(rawEnd, totalDurationMs),
+        });
+      }
+      pendingStartMs = null;
+    }
+  });
+
+  if (pendingStartMs !== null) {
+    ranges.push({
+      startMs: pendingStartMs,
+      endMs: totalDurationMs,
+    });
+  }
+
+  return ranges.sort((a, b) => a.startMs - b.startMs);
+};
+
+/**
+ * 将静音区间映射为切片窗口列表，自动满足最短/最长时长的约束。
+ */
+const buildSegmentWindows = (
+  silenceRanges: SilenceRange[],
+  durationMs: number
+): SegmentWindow[] => {
+  if (durationMs <= 0) {
+    return [{ startMs: 0, endMs: MIN_SEGMENT_DURATION_MS }];
+  }
+
+  const windows: SegmentWindow[] = [];
+  let currentStart = 0;
+
+  silenceRanges.forEach((range) => {
+    const silenceStart = Math.min(
+      Math.max(range.startMs, currentStart),
+      durationMs
+    );
+
+    while (silenceStart - currentStart > MAX_SEGMENT_DURATION_MS) {
+      const forcedEnd = currentStart + MAX_SEGMENT_DURATION_MS;
+      windows.push({ startMs: currentStart, endMs: forcedEnd });
+      currentStart = forcedEnd;
+    }
+
+    if (silenceStart - currentStart >= MIN_SEGMENT_DURATION_MS) {
+      windows.push({ startMs: currentStart, endMs: silenceStart });
+      currentStart = Math.min(range.endMs, durationMs);
+    }
+  });
+
+  while (durationMs - currentStart > MAX_SEGMENT_DURATION_MS) {
+    const forcedEnd = currentStart + MAX_SEGMENT_DURATION_MS;
+    windows.push({ startMs: currentStart, endMs: forcedEnd });
+    currentStart = forcedEnd;
+  }
+
+  if (durationMs - currentStart > 0) {
+    windows.push({ startMs: currentStart, endMs: durationMs });
+  }
+
+  if (windows.length === 0) {
+    return [{ startMs: 0, endMs: durationMs }];
+  }
+
+  const merged: SegmentWindow[] = [];
+
+  windows.forEach((window) => {
+    const duration = window.endMs - window.startMs;
+    if (duration >= MIN_SEGMENT_DURATION_MS || merged.length === 0) {
+      merged.push({ ...window });
+    } else {
+      merged[merged.length - 1].endMs = window.endMs;
+    }
+  });
+
+  if (merged.length > 1) {
+    const last = merged[merged.length - 1];
+    if (last.endMs - last.startMs < MIN_SEGMENT_DURATION_MS) {
+      merged[merged.length - 2].endMs = last.endMs;
+      merged.pop();
+    }
+  }
+
+  return merged;
+};
+
+/**
+ * 将毫秒转换为 ffmpeg 需要的秒数字符串。
+ */
+const formatSeconds = (valueMs: number): string => {
+  return (Math.max(valueMs, 0) / 1000).toFixed(3);
+};
+
+/**
+ * 裁剪音频并写入单个 segment wav。
+ */
+const writeSegmentWav = async (
+  wavPath: string,
+  window: SegmentWindow,
+  outputPath: string
+): Promise<void> => {
+  const duration = window.endMs - window.startMs;
+  const args = [
+    '-y',
+    '-i',
+    wavPath,
+    '-ss',
+    formatSeconds(window.startMs),
+    '-t',
+    formatSeconds(duration),
+    '-c',
+    'copy',
+    outputPath,
+  ];
+
+  const result = await runProcess('ffmpeg', args);
+
+  if (result.code !== 0) {
+    throw new Error(
+      `ffmpeg segment export failed code=${result.code ?? -1} stderr=${
+        result.stderr
+      }`
+    );
+  }
+};
+
+/**
+ * 静音切片：生成 cache/segments 及 artifacts/segment.json。
+ */
+const runSegmentStep = async (
+  targetJobId: string,
+  jobRootPath: string
+): Promise<void> => {
+  emitProgress(targetJobId, 'segment', 31, 'segment: 静音分析');
+
+  const wavPath = path.join(jobRootPath, 'cache', 'extracted', 'audio.wav');
+  const segmentsDir = path.join(jobRootPath, 'cache', 'segments');
+  await fs.rm(segmentsDir, { recursive: true, force: true });
+  await ensureDir(segmentsDir);
+
+  const durationMs = await probeAudioDurationMs(wavPath);
+  const silenceRanges = await detectSilenceRanges(wavPath, durationMs);
+  const windows = buildSegmentWindows(silenceRanges, durationMs);
+
+  emitProgress(targetJobId, 'segment', 37, 'segment: 切割音频');
+
+  const segments: SegmentArtifactItem[] = [];
+
+  for (let i = 0; i < windows.length; i += 1) {
+    const window = windows[i];
+    const fileName = `${i.toString().padStart(4, '0')}.wav`;
+    const segmentPath = path.join(segmentsDir, fileName);
+    await writeSegmentWav(wavPath, window, segmentPath);
+    segments.push({
+      index: i,
+      startMs: window.startMs,
+      endMs: window.endMs,
+      segmentWavPath: segmentPath,
+    });
+  }
+
+  const artifactPayload = buildArtifactPayload(targetJobId, 'segment', {
+    wavPath,
+    segmentsDir,
+    segments,
+    silenceRanges,
+  });
+
+  const artifactPath = path.join(jobRootPath, 'artifacts', 'segment.json');
+  await writeJsonAtomic(artifactPath, artifactPayload);
+
+  emitProgress(targetJobId, 'segment', 43, 'segment: 完成');
+
+  sendEvent({
+    type: 'job.log',
+    data: {
+      jobId: targetJobId,
+      ts: Date.now(),
+      level: 'info',
+      step: 'segment',
+      message: 'segment done',
+      data: {
+        artifactPath,
+        segmentsCount: segments.length,
+      },
+    },
   });
 };
 
@@ -493,6 +1216,80 @@ type TranscribedSegment = {
   words: TranscribedWord[];
 };
 
+type SegmentWindow = {
+  startMs: number;
+  endMs: number;
+};
+
+type SilenceRange = {
+  startMs: number;
+  endMs: number;
+};
+
+type SegmentArtifactItem = SegmentWindow & {
+  index: number;
+  segmentWavPath: string;
+};
+
+type DiarizeSpeaker = {
+  speakerId: string;
+  displayName: string;
+};
+
+type SpeakerTurn = {
+  speakerId: string;
+  startMs: number;
+  endMs: number;
+  confidence: number | null;
+};
+
+type TranscribeArtifact = {
+  segments?: TranscribedSegment[];
+};
+
+type ExtractAudioArtifact = {
+  audio?: {
+    durationMs?: number | null;
+  };
+};
+
+type DiarizeArtifact = {
+  speakers?: DiarizeSpeaker[];
+  turns?: SpeakerTurn[];
+};
+
+type MergeCue = {
+  cueId: string;
+  index: number;
+  startMs: number;
+  endMs: number;
+  speakerId: string | null;
+  text: string;
+};
+
+type MergeArtifact = {
+  speakers?: DiarizeSpeaker[];
+  cues?: MergeCue[];
+};
+
+type EditedSubtitleCue = {
+  cueId?: string;
+  index?: number;
+  startMs: number;
+  endMs: number;
+  speakerId?: string | null;
+  text: string;
+};
+
+type EditedSubtitleArtifact = {
+  cues?: EditedSubtitleCue[];
+};
+
+const MIN_SEGMENT_DURATION_MS = 5000;
+const MAX_SEGMENT_DURATION_MS = 45000;
+const SILENCE_THRESHOLD_DB = -35;
+const SILENCE_MIN_DURATION_SECONDS = 0.4;
+
 /**
  * 调用 whisperx 转写并生成 artifacts/transcribe.json。
  *
@@ -526,6 +1323,17 @@ const runTranscribeStep = async (
     'False',
     '--verbose',
     'False',
+    /**
+     * 默认 CPU 环境下 float16 不可用，强制使用 float32 避免报错：
+     * ValueError: Requested float16 compute type, but the target device or backend do not support efficient float16 computation.
+     */
+    '--compute_type',
+    'float32',
+    /**
+     * 避免依赖 pyannote VAD（加载 checkpoint 需 weights_only=false），改用 silero，减少额外依赖。
+     */
+    '--vad_method',
+    'silero',
   ];
 
   const result = await runProcess('python', args);
@@ -537,11 +1345,13 @@ const runTranscribeStep = async (
   }
 
   const TranscribeWordSchema = z.object({
-    text: z.string(),
+    text: z.string().optional(),
     start: z.number().nullable().optional(),
     end: z.number().nullable().optional(),
     score: z.number().nullable().optional(),
   });
+
+  type WhisperWord = z.infer<typeof TranscribeWordSchema>;
 
   const TranscribeSegmentSchema = z.object({
     start: z.number(),
@@ -569,19 +1379,26 @@ const runTranscribeStep = async (
   }
 
   const segments: TranscribedSegment[] = parsed.segments.map((item, index) => {
-    const words: TranscribedWord[] =
-      item.words?.map((word) => ({
-        startMs:
-          typeof word.start === 'number'
-            ? Math.max(Math.round(word.start * 1000), 0)
-            : null,
-        endMs:
-          typeof word.end === 'number'
-            ? Math.max(Math.round(word.end * 1000), 0)
-            : null,
-        text: word.text,
-        confidence: word.score ?? null,
-      })) ?? [];
+    const safeWords = (item.words ?? []).filter(
+      (word): word is WhisperWord & { text: string } => {
+        /**
+         * 仅保留具备有效文本的词，同时作为类型守卫保证 text 为 string。
+         */
+        return typeof word.text === 'string' && word.text.trim().length > 0;
+      }
+    );
+    const words: TranscribedWord[] = safeWords.map((word) => ({
+      startMs:
+        typeof word.start === 'number'
+          ? Math.max(Math.round(word.start * 1000), 0)
+          : null,
+      endMs:
+        typeof word.end === 'number'
+          ? Math.max(Math.round(word.end * 1000), 0)
+          : null,
+      text: word.text,
+      confidence: word.score ?? null,
+    }));
 
     return {
       index,
@@ -641,21 +1458,6 @@ const writeJsonAtomic = async (
 
   await fs.writeFile(tempPath, content, 'utf-8');
   await fs.rename(tempPath, targetPath);
-};
-
-/**
- * 写一个简单的 SRT 占位文件，便于验证导出链路。
- */
-const writePlaceholderSrt = async (
-  targetPath: string,
-  jobId: string
-): Promise<void> => {
-  const content = `1
-00:00:00,000 --> 00:00:02,000
-Stub subtitle for job ${jobId}
-`;
-
-  await fs.writeFile(targetPath, content, 'utf-8');
 };
 
 /**
@@ -789,7 +1591,7 @@ const startStubJob = async (
     {
       name: 'segment',
       run: async () => {
-        await sleep(200);
+        await runSegmentStep(targetJobId, jobRootPath);
       },
     },
     {
@@ -801,21 +1603,19 @@ const startStubJob = async (
     {
       name: 'diarize',
       run: async () => {
-        await sleep(200);
+        await runDiarizeStep(targetJobId, jobRootPath);
       },
     },
     {
       name: 'merge',
       run: async () => {
-        await sleep(200);
+        await runMergeStep(targetJobId, jobRootPath);
       },
     },
     {
       name: 'export',
       run: async () => {
-        const srtPath = path.join(jobRootPath, 'exports', 'stub.srt');
-        await writePlaceholderSrt(srtPath, targetJobId);
-        await sleep(50);
+        await runExportStep(targetJobId, jobRootPath);
       },
     },
   ];
@@ -882,8 +1682,17 @@ const startStubJob = async (
       `${currentStep.name}.json`
     );
 
-    // probe/extract_audio 已写入真实 artifact；其余步骤保持 stub 占位。
-    if (currentStep.name !== 'probe' && currentStep.name !== 'extract_audio') {
+    const realArtifactSteps = new Set([
+      'probe',
+      'extract_audio',
+      'segment',
+      'transcribe',
+      'diarize',
+      'merge',
+      'export',
+    ]);
+
+    if (!realArtifactSteps.has(currentStep.name)) {
       await writeJsonAtomic(
         artifactPath,
         buildArtifactPayload(targetJobId, currentStep.name, {

@@ -120,6 +120,7 @@ export default function HomePage() {
   const [jobUiState, setJobUiState] = useState<JobUiState>({ status: 'idle' });
   const [sourceFilePath, setSourceFilePath] =
     useState<string>('C:\\path\\demo.mp4');
+  const [sourceFileError, setSourceFileError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Record<string, JobViewModel>>({});
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
 
@@ -301,6 +302,36 @@ export default function HomePage() {
   }, [sourceFilePath]);
 
   /**
+   * 选择本地源文件。
+   */
+  const onPickSourceFile = useCallback(async () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (!window.vtot?.dialog?.selectSourceFile) {
+      setSourceFileError('当前环境无法打开文件选择器，请在 Electron 内使用。');
+      return;
+    }
+
+    setSourceFileError(null);
+
+    const result = await window.vtot.dialog.selectSourceFile();
+
+    if (!result.ok) {
+      setSourceFileError(`${result.error.code}: ${result.error.message}`);
+      return;
+    }
+
+    if (!result.data.filePath) {
+      setSourceFileError('未选择任何文件。');
+      return;
+    }
+
+    setSourceFilePath(result.data.filePath);
+  }, []);
+
+  /**
    * 取消当前任务。
    */
   const onCancelJob = useCallback(async () => {
@@ -423,6 +454,13 @@ export default function HomePage() {
             value={sourceFilePath}
             onChange={(e) => setSourceFilePath(e.target.value)}
           />
+          <button
+            className={styles['home__pickerButton']}
+            type="button"
+            onClick={onPickSourceFile}
+          >
+            选择文件
+          </button>
 
           <div className={styles['home__buttons']}>
             <button

@@ -98,6 +98,24 @@ const api = {
       };
     },
   },
+
+  /**
+   * dialog：所有对话框相关 API。
+   */
+  dialog: {
+    /**
+     * 选择源文件。
+     */
+    selectSourceFile: async (): Promise<
+      IpcInvokeResult<{ filePath: string | null }>
+    > => {
+      const result = (await ipcRenderer.invoke(
+        'vtot.dialog.selectSourceFile'
+      )) as IpcInvokeResult<{ filePath: string | null }>;
+
+      return result;
+    },
+  },
 } as const;
 
 /**

@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import type { OpenDialogOptions } from 'electron';
 
 import type {
   AppError,
@@ -226,9 +227,12 @@ const isWorkerAvailable = (): boolean => {
       workerProcess.connected &&
       workerJobId &&
       workerIsReady &&
-      !workerIsStopping
+      !workerIsStopping &&
+      !workerProcess.killed
   );
 };
+
+type SelectSourceFileResponse = { filePath: string | null };
 
 /**
  * 构造一个“Worker 未就绪”的标准错误对象。
@@ -633,6 +637,59 @@ const registerIpcHandlers = (): void => {
 
       const data = JobCancelResponseSchema.parse({ jobId: request.jobId });
       return { ok: true, data };
+    }
+  );
+
+  ipcMain.handle(
+    'vtot.dialog.selectSourceFile',
+    async (): Promise<IpcInvokeResult<SelectSourceFileResponse>> => {
+      const options: OpenDialogOptions = {
+        title: '选择媒体文件',
+        buttonLabel: '选择',
+        properties: ['openFile'],
+        filters: [
+          {
+            name: '媒体文件',
+            extensions: [
+              'mp3',
+              'wav',
+              'm4a',
+              'flac',
+              'aac',
+              'mp4',
+              'mkv',
+              'mov',
+              'avi',
+            ],
+          },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      };
+
+      try {
+        const result = mainWindow
+          ? await dialog.showOpenDialog(mainWindow, options)
+          : await dialog.showOpenDialog(options);
+
+        if (result.canceled || result.filePaths.length === 0) {
+          return { ok: true, data: { filePath: null } };
+        }
+
+        return { ok: true, data: { filePath: result.filePaths[0] ?? null } };
+      } catch (err) {
+        return {
+          ok: false,
+          error: {
+            code: 'E_ENVIRONMENT_ERROR',
+            message: '打开文件对话框失败，请重试。',
+            retryable: true,
+            step: 'dialog.selectSourceFile',
+            detail: {
+              reason: err instanceof Error ? err.message : String(err),
+            },
+          },
+        };
+      }
     }
   );
 };

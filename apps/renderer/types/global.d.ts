@@ -56,6 +56,18 @@ declare global {
          */
         onEvent: (handler: (event: JobEvent) => void) => () => void;
       };
+
+      /**
+       * dialog：对话框相关 API。
+       */
+      dialog: {
+        /**
+         * 选择源文件。
+         */
+        selectSourceFile: () => Promise<
+          IpcInvokeResult<{ filePath: string | null }>
+        >;
+      };
     };
   }
 }
