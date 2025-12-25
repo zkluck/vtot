@@ -1,0 +1,136 @@
+.job-list {
+  width: 100%;
+}
+
+.job-list--empty {
+  text-align: center;
+  padding: 40px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+}
+
+.job-item {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.2s;
+}
+
+.job-item:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.job-item__main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.job-item__info {
+  flex: 1;
+  min-width: 0;
+  margin-right: 16px;
+}
+
+.job-item__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-item__meta {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.job-item__status-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.job-item__status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.job-item__status--queued {
+  background: rgba(153, 153, 153, 0.2);
+  color: #999999;
+}
+
+.job-item__status--running {
+  background: rgba(47, 103, 255, 0.2);
+  color: #2f67ff;
+}
+
+.job-item__status--succeeded {
+  background: rgba(48, 209, 88, 0.2);
+  color: #30d158;
+}
+
+.job-item__status--failed {
+  background: rgba(255, 69, 58, 0.2);
+  color: #ff453a;
+}
+
+.job-item__status--canceled {
+  background: rgba(255, 159, 10, 0.2);
+  color: #ff9f0a;
+}
+
+.job-item__step {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 4px;
+}
+
+.job-item__footer {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 12px;
+}
+
+.job-item__actions {
+  display: flex;
+  align-items: center;
+}
+
+.job-item__btn-link {
+  font-size: 13px;
+  color: #2f67ff;
+  text-decoration: none;
+  font-weight: 600;
+  margin-right: 16px;
+}
+
+.job-item__btn-link:hover {
+  text-decoration: underline;
+}
+
+.job-item__btn--cancel {
+  background: transparent;
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  border-radius: 6px;
+  padding: 4px 12px;
+  color: #ff453a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.job-item__btn--cancel:hover {
+  background: rgba(255, 69, 58, 0.1);
+  border-color: rgba(255, 69, 58, 0.5);
+}

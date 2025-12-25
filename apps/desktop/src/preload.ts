@@ -7,7 +7,10 @@ import type {
   JobCreateRequest,
   JobCreateResponse,
   JobEvent,
+  PersistedJob,
   PingResponse,
+  AppSettings,
+  EnvCheckResult,
 } from '@vtot/shared';
 
 /**
@@ -80,6 +83,29 @@ const api = {
     },
 
     /**
+     * list：获取所有任务列表。
+     */
+    list: async (): Promise<IpcInvokeResult<PersistedJob[]>> => {
+      const result = (await ipcRenderer.invoke(
+        'vtot.job.list'
+      )) as IpcInvokeResult<PersistedJob[]>;
+
+      return result;
+    },
+
+    /**
+     * get：获取单个任务。
+     */
+    get: async (jobId: string): Promise<IpcInvokeResult<PersistedJob | null>> => {
+      const result = (await ipcRenderer.invoke(
+        'vtot.job.get',
+        jobId
+      )) as IpcInvokeResult<PersistedJob | null>;
+
+      return result;
+    },
+
+    /**
      * onEvent：订阅 Main 转发的任务事件（来自 Worker 的 job.*）。
      *
      * 注意：
@@ -116,7 +142,28 @@ const api = {
       return result;
     },
   },
-} as const;
+
+  /**
+   * settings：应用设置。
+   */
+  settings: {
+    get: async (): Promise<IpcInvokeResult<AppSettings>> => {
+      return (await ipcRenderer.invoke('vtot.settings.get')) as IpcInvokeResult<AppSettings>;
+    },
+    set: async (settings: Partial<AppSettings>): Promise<IpcInvokeResult<AppSettings>> => {
+      return (await ipcRenderer.invoke('vtot.settings.set', settings)) as IpcInvokeResult<AppSettings>;
+    }
+  },
+
+  /**
+   * env：环境信息。
+   */
+  env: {
+    check: async (): Promise<IpcInvokeResult<EnvCheckResult>> => {
+      return (await ipcRenderer.invoke('vtot.env.check')) as IpcInvokeResult<EnvCheckResult>;
+    }
+  },
+};
 
 /**
  * 把 api 注入到 Renderer 的 `window.vtot`。

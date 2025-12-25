@@ -108,13 +108,15 @@ export type SourceImportStrategy = z.infer<typeof SourceImportStrategySchema>;
  * JobOptions：任务创建时的可配置选项（会被写入 job.json.options）。
  *
  * 说明：
- * - 这里先实现 MVP 所需字段，后续可以按协议文档继续扩展。
+ * - 这里先实现 MVP 所需字段,后续可以按协议文档继续扩展。
  */
 export const JobOptionsSchema = z.object({
   /** 语言：'auto' 表示自动检测 */
   language: z.string(),
   /** Whisper 模型规格 */
-  modelSize: z.enum(['tiny', 'base', 'small', 'medium', 'large']),
+  modelSize: z.enum(['tiny', 'base', 'small', 'medium', 'large']).default('medium'),
+  /** Hugging Face Access Token */
+  hfToken: z.string().optional(),
   /** 说话人分离配置 */
   diarization: z.object({
     enabled: z.boolean(),
@@ -129,6 +131,53 @@ export const JobOptionsSchema = z.object({
 });
 
 export type JobOptions = z.infer<typeof JobOptionsSchema>;
+
+
+/**
+ * JobStatus：任务最小状态集合（与 DB `jobs.status` 对齐）。
+ */
+export const JobStatusSchema = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'canceled',
+]);
+
+export type JobStatus = z.infer<typeof JobStatusSchema>;
+
+/**
+ * PersistedJob：由 Main 进程维护的持久化任务结构。
+ *
+ * 说明：
+ * - 它是 job.json 的完整定义。
+ * - 同时也是 SQLite `jobs` 表主要字段所在的记录。
+ */
+export const PersistedJobSchema = z.object({
+  schemaVersion: z.literal('1.0'),
+  jobId: z.string(),
+  source: z.object({
+    originalPath: z.string(),
+    importStrategy: SourceImportStrategySchema,
+    fingerprint: z
+      .object({
+        sizeBytes: z.number().nullable().optional(),
+        mtimeMs: z.number().nullable().optional(),
+      })
+      .optional(),
+  }),
+  options: JobOptionsSchema,
+  status: JobStatusSchema,
+  step: z.string().optional(),
+  error: AppErrorSchema.optional(),
+  meta: z.object({
+    createdAt: z.number(),
+    updatedAt: z.number(),
+    createdByAppVersion: z.string(),
+  }),
+});
+
+export type PersistedJob = z.infer<typeof PersistedJobSchema>;
 
 /**
  * JobCreateRequest：Renderer -> Main invoke 入参。
@@ -179,19 +228,6 @@ export const PingResponseSchema = z.object({
 });
 
 export type PingResponse = z.infer<typeof PingResponseSchema>;
-
-/**
- * JobStatus：任务最小状态集合（与 DB `jobs.status` 对齐）。
- */
-export const JobStatusSchema = z.enum([
-  'queued',
-  'running',
-  'succeeded',
-  'failed',
-  'canceled',
-]);
-
-export type JobStatus = z.infer<typeof JobStatusSchema>;
 
 /**
  * JobProgressEvent：Worker -> Main（也会被 Main 转发到 Renderer）。
@@ -392,3 +428,37 @@ export const WorkerControlSchema = z.union([
 ]);
 
 export type WorkerControl = z.infer<typeof WorkerControlSchema>;
+
+/**
+ * EnvCheckResult：环境自检结果。
+ */
+export const EnvCheckResultSchema = z.object({
+  ok: z.boolean(),
+  ffmpeg: z.boolean(),
+  ffprobe: z.boolean(),
+  python: z.boolean(),
+  whisperx: z.boolean(),
+  details: z.object({
+    ffmpegVersion: z.string().optional(),
+    pythonVersion: z.string().optional(),
+    error: z.string().optional(),
+  }),
+});
+
+export type EnvCheckResult = z.infer<typeof EnvCheckResultSchema>;
+
+/**
+ * AppSettings：应用程序全局配置。
+ */
+export const AppSettingsSchema = z.object({
+  /** Hugging Face Access Token */
+  hfToken: z.string().optional(),
+  /** 默认 Whisper 模型规格 */
+  defaultModelSize: z.enum(['tiny', 'base', 'small', 'medium', 'large']).default('medium'),
+  /** 并发任务数限制 */
+  maxConcurrentJobs: z.number().int().min(1).max(4).default(1),
+  /** 模型存储路径 (可选，留空使用默认) */
+  modelDir: z.string().optional(),
+});
+
+export type AppSettings = z.infer<typeof AppSettingsSchema>;

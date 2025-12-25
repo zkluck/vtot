@@ -5,7 +5,10 @@ import type {
   JobCreateRequest,
   JobCreateResponse,
   JobEvent,
+  PersistedJob,
   PingResponse,
+  AppSettings,
+  EnvCheckResult,
 } from '@vtot/shared';
 
 /**
@@ -52,6 +55,16 @@ declare global {
         ) => Promise<IpcInvokeResult<JobCancelResponse>>;
 
         /**
+         * list：获取所有任务列表。
+         */
+        list: () => Promise<IpcInvokeResult<PersistedJob[]>>;
+
+        /**
+         * get：获取单个任务详情。
+         */
+        get: (jobId: string) => Promise<IpcInvokeResult<PersistedJob | null>>;
+
+        /**
          * onEvent：订阅任务事件。
          */
         onEvent: (handler: (event: JobEvent) => void) => () => void;
@@ -67,6 +80,21 @@ declare global {
         selectSourceFile: () => Promise<
           IpcInvokeResult<{ filePath: string | null }>
         >;
+      };
+
+      /**
+       * settings：应用设置。
+       */
+      settings: {
+        get: () => Promise<IpcInvokeResult<AppSettings>>;
+        set: (settings: Partial<AppSettings>) => Promise<IpcInvokeResult<AppSettings>>;
+      };
+
+      /**
+       * env：环境探测。
+       */
+      env: {
+        check: () => Promise<IpcInvokeResult<EnvCheckResult>>;
       };
     };
   }

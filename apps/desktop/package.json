@@ -9,9 +9,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@vtot/shared": "workspace:*"
+    "@vtot/shared": "workspace:*",
+    "better-sqlite3": "^12.5.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.11.30",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",

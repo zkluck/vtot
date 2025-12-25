@@ -1,0 +1,79 @@
+.container {
+  min-height: 100vh;
+  background: #0b0f1a;
+  color: #e8eaf0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+.header {
+  height: 64px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header__content {
+  width: 100%;
+  max-width: 800px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.header__actions {
+  display: flex;
+  align-items: center;
+}
+
+.header__link {
+  margin-right: 16px;
+  color: #a0aec0;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.header__link:hover {
+  color: #63b3ed;
+}
+
+.header__btn {
+  padding: 8px 16px;
+  background-color: #3182ce;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.header__btn:hover {
+  background: #2459e8;
+}
+
+.header__btn:active {
+  transform: scale(0.98);
+}
+
+.main {
+  width: 100%;
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 0 24px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: rgba(255, 255, 255, 0.5);
+}

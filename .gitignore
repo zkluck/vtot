@@ -14,3 +14,17 @@ node_modules/
 # Logs
 **/logs/
 *.log
+
+# Environment
+.env
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/

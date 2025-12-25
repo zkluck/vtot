@@ -75,7 +75,69 @@ const getJobJsonPath = (jobRootPath: string): string => {
 };
 
 /**
- * 说话人分离：若未启用则生成单 speaker，启用时可接 Engine（暂为 stub）。
+ * 通用的引擎调用辅助函数（遵循文件式协议）。
+ */
+const runEngineCommand = async (
+  targetJobId: string,
+  workDir: string,
+  command: string,
+  payload: Record<string, unknown>,
+  stepName: string,
+  baseProgress: number
+): Promise<any> => {
+  const requestPath = path.join(workDir, 'request.json');
+  const responsePath = path.join(workDir, 'response.json');
+
+  await ensureDir(workDir);
+  await writeJsonAtomic(requestPath, payload);
+
+  const projectRoot = path.resolve(__dirname, '../../../');
+  const pythonPath =
+    process.platform === 'win32'
+      ? path.join(projectRoot, '.venv', 'Scripts', 'python.exe')
+      : path.join(projectRoot, '.venv', 'bin', 'python');
+
+  const scriptPath = path.join(projectRoot, 'engine', `${command}.py`);
+
+  const result = await runProcess(pythonPath, [scriptPath, workDir], undefined, {
+    onStdout: (line) => {
+      // 解析引擎输出的特殊标记
+      if (line.includes('[VTOT:STATUS]')) {
+        const msg = line.split('[VTOT:STATUS]')[1].trim();
+        emitProgress(targetJobId, stepName, baseProgress, msg);
+      }
+    },
+    onStderr: (line) => {
+      // whisperX 的进度通常在 stderr
+      // 也可以捕获特定的下载信息
+      if (line.includes('Downloading')) {
+        emitProgress(targetJobId, stepName, baseProgress, `下载中: ${line.trim()}`);
+      }
+    }
+  });
+
+  if (result.code !== 0) {
+    throw new Error(
+      `Engine ${command} 进程异常退出 (code=${result.code ?? -1}).\nStderr: ${
+        result.stderr
+      }`
+    );
+  }
+
+  const responseContent = await fs.readFile(responsePath, 'utf-8');
+  const response = JSON.parse(responseContent);
+
+  if (!response.ok) {
+    throw new Error(
+      `Engine ${command} 返回失败: ${response.error?.message || '未知错误'}`
+    );
+  }
+
+  return response.result;
+};
+
+/**
+ * 说话人分离：调用 Python 引擎脚本执行真实计算。
  */
 const runDiarizeStep = async (
   targetJobId: string,
@@ -149,75 +211,56 @@ const runDiarizeStep = async (
     return;
   }
 
-  emitProgress(targetJobId, 'diarize', 65, 'diarize: stub pipeline');
-  await sleep(200);
+  emitProgress(targetJobId, 'diarize', 65, 'diarize: 引擎计算中');
 
-  const minSpeakers = diarizationOptions.minSpeakers ?? 1;
-  const maxSpeakers =
-    diarizationOptions.maxSpeakers ?? Math.max(minSpeakers, 2);
-  const speakerCount = Math.max(1, Math.min(2, maxSpeakers));
+  /**
+   * 按照协议，在 JobRoot/engine/diarize 下执行。
+   */
+  const workDir = path.join(jobRootPath, 'engine', 'diarize');
+  const wavPath = path.join(jobRootPath, 'cache', 'extracted', 'audio.wav');
 
-  const speakers: DiarizeSpeaker[] = Array.from({ length: speakerCount }).map(
-    (_, index) => ({
-      speakerId: `SPEAKER_${index.toString().padStart(2, '0')}`,
-      displayName: `Speaker ${index + 1}`,
-    })
-  );
+  try {
+    const result = await runEngineCommand(targetJobId, workDir, 'diarizer', {
+      wavPath,
+      diarization: diarizationOptions,
+      hfToken: jobFile.options.hfToken,
+    }, 'diarize', 65);
 
-  const totalDuration = durationMs ?? 0;
-  const turns: SpeakerTurn[] = [];
+    const speakers: DiarizeSpeaker[] = result.speakers;
+    const turns: SpeakerTurn[] = result.turns;
 
-  if (totalDuration > 0 && speakers.length > 0) {
-    const turnDuration = Math.floor(totalDuration / speakers.length);
-    let cursor = 0;
-
-    speakers.forEach((speaker, idx) => {
-      const isLast = idx === speakers.length - 1;
-      const endPoint = isLast ? totalDuration : cursor + turnDuration;
-
-      turns.push({
-        speakerId: speaker.speakerId,
-        startMs: cursor,
-        endMs: Math.max(endPoint, cursor),
-        confidence: null,
-      });
-
-      cursor = endPoint;
+    const artifactPayload = buildArtifactPayload(targetJobId, 'diarize', {
+      speakers,
+      turns,
+      note: 'real diarization result',
     });
-  } else {
-    turns.push({
-      speakerId: speakers[0]?.speakerId ?? 'SPEAKER_00',
-      startMs: 0,
-      endMs: 0,
-      confidence: null,
-    });
-  }
 
-  const artifactPayload = buildArtifactPayload(targetJobId, 'diarize', {
-    speakers,
-    turns,
-    note: 'diarize stub placeholder',
-  });
+    const artifactPath = path.join(jobRootPath, 'artifacts', 'diarize.json');
+    await writeJsonAtomic(artifactPath, artifactPayload);
 
-  const artifactPath = path.join(jobRootPath, 'artifacts', 'diarize.json');
-  await writeJsonAtomic(artifactPath, artifactPayload);
+    emitProgress(targetJobId, 'diarize', 71, 'diarize: 完成');
 
-  emitProgress(targetJobId, 'diarize', 71, 'diarize: 完成（stub）');
-
-  sendEvent({
-    type: 'job.log',
-    data: {
-      jobId: targetJobId,
-      ts: Date.now(),
-      level: 'info',
-      step: 'diarize',
-      message: 'diarize done (stub)',
+    sendEvent({
+      type: 'job.log',
       data: {
-        artifactPath,
-        speakersCount: speakers.length,
+        jobId: targetJobId,
+        ts: Date.now(),
+        level: 'info',
+        step: 'diarize',
+        message: 'diarize done',
+        data: {
+          artifactPath,
+          speakersCount: speakers.length,
+        },
       },
-    },
-  });
+    });
+  } catch (err) {
+    /**
+     * 这里捕获引擎错误，由 Worker 统一抛出以标记任务失败。
+     */
+    console.error('[worker] diarize step failed', err);
+    throw err;
+  }
 };
 
 const formatTimestamp = (valueMs: number, separator: ',' | '.'): string => {
@@ -658,7 +701,11 @@ const stopStubJob = (targetJobId: string): RunningJob | null => {
 const runProcess = async (
   command: string,
   args: string[],
-  cwd?: string
+  cwd?: string,
+  callbacks?: {
+    onStdout?: (line: string) => void;
+    onStderr?: (line: string) => void;
+  }
 ): Promise<{ code: number | null; stdout: string; stderr: string }> => {
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd, shell: false });
@@ -666,11 +713,23 @@ const runProcess = async (
     let stderr = '';
 
     child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      if (callbacks?.onStdout) {
+        text.split(/\r?\n/).forEach(line => {
+          if (line.trim()) callbacks.onStdout!(line);
+        });
+      }
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      if (callbacks?.onStderr) {
+        text.split(/\r?\n/).forEach(line => {
+          if (line.trim()) callbacks.onStderr!(line);
+        });
+      }
     });
 
     child.on('close', (code) => {
@@ -1309,156 +1368,85 @@ const runTranscribeStep = async (
   targetJobId: string,
   jobRootPath: string
 ): Promise<void> => {
-  emitProgress(targetJobId, 'transcribe', 45, 'transcribe: whisperx 开始');
+  emitProgress(targetJobId, 'transcribe', 45, 'transcribe: 引擎计算中');
 
   const wavPath = path.join(jobRootPath, 'cache', 'extracted', 'audio.wav');
-  const outputDir = path.join(jobRootPath, 'cache', 'transcribe');
-  await ensureDir(outputDir);
-
-  const baseName = path.parse(wavPath).name;
-  const whisperJsonPath = path.join(outputDir, `${baseName}.json`);
-
   const jobFile = await readJobFile(jobRootPath);
 
   if (!jobFile) {
     throw new Error('job.json 不可读，无法执行 transcribe');
   }
 
-  const requestedLanguage = jobFile.options.language ?? 'zh';
-  const requestedModel = jobFile.options.modelSize ?? 'medium';
-
-  const args: string[] = [
-    '-m',
-    'whisperx',
-    wavPath,
-    '--model',
-    requestedModel,
-    '--output_dir',
-    outputDir,
-    '--print_progress',
-    'False',
-    '--verbose',
-    'False',
-    /**
-     * 默认 CPU 环境下 float16 不可用，强制使用 float32 避免报错：
-     * ValueError: Requested float16 compute type, but the target device or backend do not support efficient float16 computation.
-     */
-    '--compute_type',
-    'float32',
-    /**
-     * 避免依赖 pyannote VAD（加载 checkpoint 需 weights_only=false），改用 silero，减少额外依赖。
-     */
-    '--vad_method',
-    'silero',
-  ];
-
-  if (
-    requestedLanguage.trim().length > 0 &&
-    requestedLanguage.toLowerCase() !== 'auto'
-  ) {
-    args.push('--language', requestedLanguage);
-  }
-
-  const result = await runProcess('python', args);
-
-  if (result.code !== 0) {
-    throw new Error(
-      `whisperx failed code=${result.code ?? -1} stderr=${result.stderr}`
-    );
-  }
-
-  const TranscribeWordSchema = z.object({
-    text: z.string().optional(),
-    start: z.number().nullable().optional(),
-    end: z.number().nullable().optional(),
-    score: z.number().nullable().optional(),
-  });
-
-  type WhisperWord = z.infer<typeof TranscribeWordSchema>;
-
-  const TranscribeSegmentSchema = z.object({
-    start: z.number(),
-    end: z.number(),
-    text: z.string(),
-    words: z.array(TranscribeWordSchema).optional(),
-  });
-
-  const WhisperxOutputSchema = z.object({
-    segments: z.array(TranscribeSegmentSchema),
-    language: z.string().optional(),
-  });
-
-  let parsed: z.infer<typeof WhisperxOutputSchema>;
+  const workDir = path.join(jobRootPath, 'engine', 'transcribe');
 
   try {
-    const content = await fs.readFile(whisperJsonPath, 'utf-8');
-    parsed = WhisperxOutputSchema.parse(JSON.parse(content) as unknown);
-  } catch (err) {
-    throw new Error(
-      `whisperx output parse failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
-  }
+    const result = await runEngineCommand(targetJobId, workDir, 'transcriber', {
+      wavPath,
+      options: {
+        language: jobFile.options.language,
+        modelSize: jobFile.options.modelSize,
+      },
+      hfToken: jobFile.options.hfToken,
+    }, 'transcribe', 45);
 
-  const segments: TranscribedSegment[] = parsed.segments.map((item, index) => {
-    const safeWords = (item.words ?? []).filter(
-      (word): word is WhisperWord & { text: string } => {
-        /**
-         * 仅保留具备有效文本的词，同时作为类型守卫保证 text 为 string。
-         */
-        return typeof word.text === 'string' && word.text.trim().length > 0;
+    const segments: TranscribedSegment[] = result.segments.map(
+      (item: any, index: number) => {
+        const words: TranscribedWord[] = (item.words ?? []).map((word: any) => ({
+          startMs:
+            typeof word.start === 'number'
+              ? Math.max(Math.round(word.start * 1000), 0)
+              : null,
+          endMs:
+            typeof word.end === 'number'
+              ? Math.max(Math.round(word.end * 1000), 0)
+              : null,
+          text: word.word ?? word.text, // whisperx python API 结果可能是 word
+          confidence: word.score ?? word.probability ?? null,
+        }));
+
+        return {
+          index,
+          startMs: Math.max(Math.round(item.start * 1000), 0),
+          endMs: Math.max(Math.round(item.end * 1000), 0),
+          text: item.text,
+          words,
+        };
       }
     );
-    const words: TranscribedWord[] = safeWords.map((word) => ({
-      startMs:
-        typeof word.start === 'number'
-          ? Math.max(Math.round(word.start * 1000), 0)
-          : null,
-      endMs:
-        typeof word.end === 'number'
-          ? Math.max(Math.round(word.end * 1000), 0)
-          : null,
-      text: word.text,
-      confidence: word.score ?? null,
-    }));
 
-    return {
-      index,
-      startMs: Math.max(Math.round(item.start * 1000), 0),
-      endMs: Math.max(Math.round(item.end * 1000), 0),
-      text: item.text,
-      words,
-    };
-  });
+    const artifactPayload = buildArtifactPayload(targetJobId, 'transcribe', {
+      language: result.language,
+      modelSize: jobFile.options.modelSize,
+      enableWordTimestamps: true,
+      segments,
+    });
 
-  const artifactPayload = buildArtifactPayload(targetJobId, 'transcribe', {
-    language: requestedLanguage,
-    modelSize: requestedModel,
-    enableWordTimestamps: true,
-    segments,
-  });
+    const artifactPath = path.join(jobRootPath, 'artifacts', 'transcribe.json');
+    await writeJsonAtomic(artifactPath, artifactPayload);
 
-  const artifactPath = path.join(jobRootPath, 'artifacts', 'transcribe.json');
-  await writeJsonAtomic(artifactPath, artifactPayload);
+    emitProgress(targetJobId, 'transcribe', 70, 'transcribe: 完成');
 
-  emitProgress(targetJobId, 'transcribe', 70, 'transcribe: 完成');
-
-  sendEvent({
-    type: 'job.log',
-    data: {
-      jobId: targetJobId,
-      ts: Date.now(),
-      level: 'info',
-      step: 'transcribe',
-      message: 'transcribe done',
+    sendEvent({
+      type: 'job.log',
       data: {
-        artifactPath,
-        whisperJsonPath,
+        jobId: targetJobId,
+        ts: Date.now(),
+        level: 'info',
+        step: 'transcribe',
+        message: 'transcribe done via engine',
+        data: {
+          artifactPath,
+          segmentsCount: segments.length,
+        },
       },
-    },
-  });
+    });
+  } catch (err) {
+    console.error('[worker] transcribe step failed', err);
+    throw err;
+  }
 };
+
+
 
 /**
  * 延迟工具，用于模拟耗时步骤。
