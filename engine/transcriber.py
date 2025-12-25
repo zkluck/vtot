@@ -4,6 +4,7 @@ import os
 import torch
 import whisperx
 import gc
+from opencc import OpenCC
 
 def main():
     """
@@ -29,6 +30,9 @@ def main():
     progress_path = os.path.join(work_dir, "progress.json")
     cancel_flag_path = os.path.join(work_dir, "cancel.flag")
 
+    # 初始化繁体转简体转换器
+    cc = OpenCC('t2s')
+
     def update_progress(percent, message):
         try:
             # 同时也通过 stdout 输出，方便 Worker 实时捕获
@@ -41,6 +45,17 @@ def main():
     def check_cancel():
         if os.path.exists(cancel_flag_path):
             raise InterruptedError("Job canceled by user")
+
+    def convert_to_simplified(segments):
+        """将 segments 中的所有文本从繁体转为简体"""
+        for seg in segments:
+            if 'text' in seg:
+                seg['text'] = cc.convert(seg['text'])
+            if 'words' in seg:
+                for word in seg['words']:
+                    if 'word' in word:
+                        word['word'] = cc.convert(word['word'])
+        return segments
 
     try:
         update_progress(0, "引擎启动中")
@@ -130,7 +145,11 @@ def main():
         
         check_cancel()
 
-        # 3. 结果处理
+        # 3. 繁体转简体
+        update_progress(90, "转换为简体中文...")
+        result["segments"] = convert_to_simplified(result["segments"])
+
+        # 4. 结果处理
         # 这里的 result 结构已经包含了 segments 和 language
         response = {
             "protocolVersion": "1.0",
