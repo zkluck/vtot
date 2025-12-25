@@ -32,6 +32,7 @@ export const AppErrorCodeSchema = z.enum([
   'E_WORKER_START_FAILED',
   'E_WORKER_CRASHED',
   'E_WORKER_TIMEOUT',
+  'E_WORKER_ERROR',
   'E_USER_CANCELED',
 ]);
 
@@ -114,7 +115,7 @@ export const JobOptionsSchema = z.object({
   /** 语言：'auto' 表示自动检测 */
   language: z.string(),
   /** Whisper 模型规格 */
-  modelSize: z.enum(['tiny', 'base', 'small', 'medium', 'large']).default('medium'),
+  modelSize: z.enum(['tiny', 'base', 'small', 'medium', 'large', 'large-v2', 'large-v3']).default('medium'),
   /** Hugging Face Access Token */
   hfToken: z.string().optional(),
   /** 说话人分离配置 */
@@ -454,7 +455,7 @@ export const AppSettingsSchema = z.object({
   /** Hugging Face Access Token */
   hfToken: z.string().optional(),
   /** 默认 Whisper 模型规格 */
-  defaultModelSize: z.enum(['tiny', 'base', 'small', 'medium', 'large']).default('medium'),
+  defaultModelSize: z.enum(['tiny', 'base', 'small', 'medium', 'large', 'large-v2', 'large-v3']).default('medium'),
   /** 并发任务数限制 */
   maxConcurrentJobs: z.number().int().min(1).max(4).default(1),
   /** 模型存储路径 (可选，留空使用默认) */

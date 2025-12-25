@@ -176,3 +176,12 @@ export const listJobs = (): PersistedJob[] => {
   const rows = database.prepare('SELECT * FROM jobs ORDER BY created_at DESC').all() as JobRow[];
   return rows.map(mapRowToJob);
 };
+
+/**
+ * 获取所有未完成的任务（用于启动恢复）。
+ */
+export const getUnfinishedJobs = (): PersistedJob[] => {
+  const database = getDb();
+  const rows = database.prepare("SELECT * FROM jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC").all() as JobRow[];
+  return rows.map(mapRowToJob);
+};

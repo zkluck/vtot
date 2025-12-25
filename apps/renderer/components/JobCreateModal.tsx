@@ -14,6 +14,7 @@ interface JobCreateModalProps {
 
 export const JobCreateModal = ({ onClose, onCreated }: JobCreateModalProps) => {
   const [sourceFilePath, setSourceFilePath] = useState('');
+  const [modelSize, setModelSize] = useState<'tiny' | 'base' | 'small' | 'medium' | 'large' | 'large-v2' | 'large-v3'>('medium');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +47,7 @@ export const JobCreateModal = ({ onClose, onCreated }: JobCreateModalProps) => {
       importStrategy: 'reference',
       options: {
         language: 'zh',
-        modelSize: 'medium',
+        modelSize,
         diarization: {
           enabled: false,
         },
@@ -75,7 +76,7 @@ export const JobCreateModal = ({ onClose, onCreated }: JobCreateModalProps) => {
     } finally {
       setLoading(false);
     }
-  }, [sourceFilePath, onClose, onCreated]);
+  }, [sourceFilePath, modelSize, onClose, onCreated]);
 
   return (
     <div className={styles.modal}>
@@ -100,6 +101,27 @@ export const JobCreateModal = ({ onClose, onCreated }: JobCreateModalProps) => {
               浏览
             </button>
           </div>
+        </div>
+
+        <div className={styles['modal__field']}>
+          <label className={styles['modal__label']}>模型规格</label>
+          <select 
+            className={styles['modal__input']}
+            value={modelSize}
+            onChange={(e) => setModelSize(e.target.value as any)}
+            disabled={loading}
+          >
+            <option value="tiny">Tiny (极快)</option>
+            <option value="base">Base</option>
+            <option value="small">Small</option>
+            <option value="medium">Medium (推荐)</option>
+            <option value="large">Large (高精度)</option>
+            <option value="large-v2">Large V2 (更高精度)</option>
+            <option value="large-v3">Large V3 (最新最强)</option>
+          </select>
+          <p className={styles['modal__hint']}>
+            Large 模型显存占用较高 (~10GB)，如显存不足请选择 Medium。
+          </p>
         </div>
 
         {error && <div className={styles['modal__error']}>{error}</div>}

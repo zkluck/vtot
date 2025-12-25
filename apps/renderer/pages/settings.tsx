@@ -95,6 +95,8 @@ export default function SettingsPage() {
                 <option value="small">Small</option>
                 <option value="medium">Medium (推荐)</option>
                 <option value="large">Large (极慢, 高显存)</option>
+                <option value="large-v2">Large V2 (更高精度)</option>
+                <option value="large-v3">Large V3 (最新最强)</option>
               </select>
             </div>
 

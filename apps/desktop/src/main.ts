@@ -138,6 +138,36 @@ const sendJobEventToRenderer = (event: JobEvent): void => {
 };
 
 /**
+ * 启动时从 DB 恢复未完成的任务。
+ */
+const recoverJobs = async (): Promise<void> => {
+  if (!scheduler) return;
+
+  const unfinished = db.getUnfinishedJobs();
+  if (unfinished.length === 0) return;
+
+  console.log(`[main] recovering ${unfinished.length} unfinished jobs...`);
+
+  for (const job of unfinished) {
+    // 强制重置为 queued 状态，防止由于上次非正常关闭导致的 running 状态残留在数据库
+    // 这样当它被重新入队时，调度器会按正常流程启动 Worker
+    db.updateJobStatus(job.jobId, 'queued');
+
+    const jobRoot = path.join(getJobsRoot(), job.jobId);
+
+    scheduler.enqueue({
+      jobId: job.jobId,
+      jobRootPath: jobRoot,
+      request: {
+        sourceFilePath: job.source.originalPath,
+        importStrategy: job.source.importStrategy,
+        options: job.options,
+      },
+    });
+  }
+};
+
+/**
  * 创建主窗口并加载 Renderer。
  *
  * 说明：
@@ -463,7 +493,10 @@ app.whenReady().then(async () => {
   });
   scheduler.updateMaxConcurrent(settings.maxConcurrentJobs);
 
-  // 4. 环境自检 (异步执行，不阻塞启动)
+  // 4. 恢复未完成任务
+  await recoverJobs();
+
+  // 5. 环境自检 (异步执行，不阻塞启动)
   void checkEnvironment().then((report) => {
     console.log('[main] environment report:', report);
     if (!report.ok) {

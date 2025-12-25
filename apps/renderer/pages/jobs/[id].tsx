@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import type { PersistedJob, JobEvent } from '@vtot/shared';
 import styles from '../../styles/JobDetail.module.css';
+import { translateStep, translateStatus } from '../../utils/i18n';
 
 /**
  * JobDetailPage：任务详情页。
@@ -58,9 +59,9 @@ export default function JobDetailPage() {
       if (event.type === 'job.log') {
         logLine = `[${time}] [${event.data.level}] ${event.data.message}`;
       } else if (event.type === 'job.progress') {
-        logLine = `[${time}] [PROGRESS] ${event.data.step} ${event.data.percent}% - ${event.data.message}`;
+        logLine = `[${time}] [PROGRESS] ${translateStep(event.data.step)} ${event.data.percent}% - ${event.data.message}`;
       } else if (event.type === 'job.status') {
-        logLine = `[${time}] [STATUS] Moving to ${event.data.status}`;
+        logLine = `[${time}] [STATUS] 状态变更: ${translateStatus(event.data.status)}`;
       }
 
       if (logLine) {
@@ -101,7 +102,7 @@ export default function JobDetailPage() {
           <div className={styles['card__header']}>
             <h2 className={styles['card__title']}>基本信息</h2>
             <span className={`${styles['status-tag']} ${styles[`status-tag--${job.status}`]}`}>
-              {job.status.toUpperCase()}
+              {translateStatus(job.status)}
             </span>
           </div>
           <div className={styles['card__body']}>
@@ -120,7 +121,7 @@ export default function JobDetailPage() {
             {job.step && (
               <div className={styles['info-row']}>
                 <span className={styles['info-row__label']}>当前步骤:</span>
-                <span className={styles['info-row__value']}>{job.step}</span>
+                <span className={styles['info-row__value']}>{translateStep(job.step)}</span>
               </div>
             )}
           </div>

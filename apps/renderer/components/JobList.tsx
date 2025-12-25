@@ -1,6 +1,7 @@
 import type { PersistedJob } from '@vtot/shared';
 import styles from '../styles/JobList.module.css';
 import Link from 'next/link';
+import { translateStep, translateStatus } from '../utils/i18n';
 
 /**
  * JobList 组件：展示任务列表。
@@ -37,11 +38,11 @@ export const JobList = ({ jobs, onCancel }: JobListProps) => {
             
             <div className={styles['job-item__status-container']}>
               <span className={`${styles['job-item__status']} ${styles[`job-item__status--${job.status}`]}`}>
-                {job.status.toUpperCase()}
+                {translateStatus(job.status)}
               </span>
               {job.step && (
                 <span className={styles['job-item__step']}>
-                  {job.step}
+                  {translateStep(job.step)}
                 </span>
               )}
             </div>

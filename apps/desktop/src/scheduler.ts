@@ -117,6 +117,17 @@ export class JobScheduler {
           event.data.step,
           event.data.error
         );
+
+        // 如果任务终结（成功/失败/取消），则通知 Worker 退出以释放 slot
+        if (['succeeded', 'failed', 'canceled'].includes(event.data.status)) {
+          this.sendControl(event.data.jobId, {
+            type: 'worker.shutdown',
+            data: {
+              jobId: event.data.jobId,
+              ts: Date.now(),
+            },
+          });
+        }
       }
 
       // 转发事件到 Renderer

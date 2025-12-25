@@ -1537,10 +1537,13 @@ const startStubJob = async (
   sourceFilePath: string,
   jobRootPath: string
 ): Promise<void> => {
-  /**
-   * 同 jobId 可能被重复 start（例如重试/重复点击），这里直接覆盖并重启。
-   */
-  stopStubJob(targetJobId);
+  try {
+    /**
+     * 同 jobId 可能被重复 start（例如重试/重复点击），这里直接覆盖并重启。
+     */
+    stopStubJob(targetJobId);
+
+    console.log(`[worker] [${targetJobId}] startStubJob entry`);
 
   const jobFile = await readJobFile(jobRootPath);
 
@@ -1596,12 +1599,16 @@ const startStubJob = async (
         },
       },
     });
+  } else {
+    console.warn(`[worker] [${targetJobId}] job.json not found or invalid`);
   }
 
   runningJobs.set(targetJobId, {
     jobId: targetJobId,
     jobRootPath,
   });
+
+  console.log(`[worker] [${targetJobId}] pipeline starting...`);
 
   /**
    * pipeline：probe/extract_audio 使用真实 ffprobe/ffmpeg，其余步骤仍为 stub。
@@ -1803,6 +1810,35 @@ const startStubJob = async (
       message: 'job succeeded (stub pipeline)',
     },
   });
+
+  console.log(`[worker] [${targetJobId}] job succeeded`);
+  } catch (err) {
+    console.error(`[worker] [${targetJobId}] fatal error in startStubJob:`, err);
+    sendEvent({
+      type: 'job.status',
+      data: {
+        jobId: targetJobId,
+        status: 'failed',
+        step: 'stub',
+        ts: Date.now(),
+        error: {
+          code: 'E_WORKER_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+          retryable: false,
+        },
+      },
+    });
+    sendEvent({
+      type: 'job.log',
+      data: {
+        jobId: targetJobId,
+        ts: Date.now(),
+        level: 'error',
+        step: 'stub',
+        message: `fatal error: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    });
+  }
 };
 
 /**
