@@ -19,6 +19,10 @@ def main():
         print("Usage: python transcriber.py <workDir>")
         sys.exit(1)
 
+    # 强制设置 stdout 为 UTF-8 编码，防止 Windows 下输出乱码
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+
     work_dir = sys.argv[1]
     request_path = os.path.join(work_dir, "request.json")
     response_path = os.path.join(work_dir, "response.json")

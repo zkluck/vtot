@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@vtot/shared": "workspace:*",
-    "better-sqlite3": "^12.5.0"
+    "better-sqlite3": "^12.5.0",
+    "dotenv": "^17.2.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -18,6 +19,7 @@
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "electron": "^30.0.0",
+    "electron-rebuild": "^3.2.9",
     "typescript": "^5.5.4",
     "wait-on": "^7.2.0"
   }

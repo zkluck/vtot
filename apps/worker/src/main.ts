@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 import { z } from 'zod';
 
@@ -99,22 +100,33 @@ const runEngineCommand = async (
 
   const scriptPath = path.join(projectRoot, 'engine', `${command}.py`);
 
-  const result = await runProcess(pythonPath, [scriptPath, workDir], undefined, {
-    onStdout: (line) => {
-      // 解析引擎输出的特殊标记
-      if (line.includes('[VTOT:STATUS]')) {
-        const msg = line.split('[VTOT:STATUS]')[1].trim();
-        emitProgress(targetJobId, stepName, baseProgress, msg);
-      }
+  const result = await runProcess(
+    pythonPath,
+    [scriptPath, workDir],
+    undefined,
+    {
+      onStdout: (line) => {
+        // 解析引擎输出的特殊标记
+        if (line.includes('[VTOT:STATUS]')) {
+          const msg = line.split('[VTOT:STATUS]')[1].trim();
+          emitProgress(targetJobId, stepName, baseProgress, msg);
+        }
+      },
+      onStderr: (line) => {
+        // whisperX 的进度通常在 stderr
+        // 也可以捕获特定的下载信息
+        if (line.includes('Downloading')) {
+          emitProgress(
+            targetJobId,
+            stepName,
+            baseProgress,
+            `下载中: ${line.trim()}`
+          );
+        }
+      },
     },
-    onStderr: (line) => {
-      // whisperX 的进度通常在 stderr
-      // 也可以捕获特定的下载信息
-      if (line.includes('Downloading')) {
-        emitProgress(targetJobId, stepName, baseProgress, `下载中: ${line.trim()}`);
-      }
-    }
-  });
+    { ...process.env, PYTHONIOENCODING: 'utf-8' }
+  );
 
   if (result.code !== 0) {
     throw new Error(
@@ -705,35 +717,45 @@ const runProcess = async (
   callbacks?: {
     onStdout?: (line: string) => void;
     onStderr?: (line: string) => void;
-  }
+  },
+  env?: NodeJS.ProcessEnv
 ): Promise<{ code: number | null; stdout: string; stderr: string }> => {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, shell: false });
+    const child = spawn(command, args, { cwd, shell: false, env });
     let stdout = '';
     let stderr = '';
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
 
     child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
+      const text = stdoutDecoder.write(chunk);
       stdout += text;
       if (callbacks?.onStdout) {
-        text.split(/\r?\n/).forEach(line => {
+        text.split(/\r?\n/).forEach((line) => {
           if (line.trim()) callbacks.onStdout!(line);
         });
       }
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
+      const text = stderrDecoder.write(chunk);
       stderr += text;
       if (callbacks?.onStderr) {
-        text.split(/\r?\n/).forEach(line => {
+        text.split(/\r?\n/).forEach((line) => {
           if (line.trim()) callbacks.onStderr!(line);
         });
       }
     });
 
     child.on('close', (code) => {
+      stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
+      console.log(`[worker] process ${command} closed with code ${code}`);
       resolve({ code, stdout, stderr });
+    });
+
+    child.on('error', (err) => {
+      console.error(`[worker] process ${command} failed to start:`, err);
     });
   });
 };
@@ -1546,6 +1568,18 @@ const startStubJob = async (
       },
     },
   });
+
+    console.log(`[worker] starting stub job: ${targetJobId} for ${sourceFilePath}`);
+    sendEvent({
+      type: 'job.log',
+      data: {
+        jobId: targetJobId,
+        ts: Date.now(),
+        level: 'info',
+        step: 'stub',
+        message: 'Worker beginning pipeline execution...',
+      },
+    });
 
   if (jobFile) {
     sendEvent({

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { fork } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';

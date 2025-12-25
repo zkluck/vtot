@@ -14,7 +14,14 @@ export class SettingsManager {
 
   constructor() {
     this.settingsPath = path.join(app.getPath('userData'), SETTINGS_FILE_NAME);
-    this.currentSettings = AppSettingsSchema.parse({}); // 使用默认值
+    
+    // 初始化默认值，优先从环境变量读取
+    const defaultSettings: Partial<AppSettings> = {};
+    if (process.env.VTOT_HF_TOKEN) {
+      defaultSettings.hfToken = process.env.VTOT_HF_TOKEN;
+    }
+    
+    this.currentSettings = AppSettingsSchema.parse(defaultSettings);
   }
 
   /**
@@ -24,10 +31,17 @@ export class SettingsManager {
     try {
       const content = await fs.readFile(this.settingsPath, 'utf-8');
       const parsed = JSON.parse(content);
-      this.currentSettings = AppSettingsSchema.parse(parsed);
+      
+      // 合并策略：本地文件 > 环境变量 > 默认模型值
+      const merged = {
+        ...this.currentSettings, // 这里已经包含了构造函数里设置的 .env 默认值
+        ...parsed,
+      };
+      
+      this.currentSettings = AppSettingsSchema.parse(merged);
     } catch (err) {
-      // 文件不存在或格式错误，保持默认值
-      console.log('[settings] using default settings');
+      // 文件不存在或格式错误，保持构造函数中的默认值（含有 .env 项目）
+      console.log('[settings] using default settings with .env fallback');
       await this.save(this.currentSettings);
     }
     return this.currentSettings;
